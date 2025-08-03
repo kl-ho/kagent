@@ -8,8 +8,9 @@ from gomoku.core.models import Player
 
 class MyExampleAgent(Agent):
     def _setup(self):
-        self.llm = OpenAIGomokuClient(model="gemma2-9b-it")
-        self.debug = True  # Toggle debug logs
+        # 🔹 Updated model to Qwen3-8B
+        self.llm = OpenAIGomokuClient(model="Qwen/Qwen3-8B")
+        self.debug = True
 
     def log(self, msg):
         if self.debug:
@@ -71,31 +72,24 @@ class MyExampleAgent(Agent):
         player_symbol = self.player.value
         rival_symbol = (Player.WHITE if self.player == Player.BLACK else Player.BLACK).value
 
-        # 1️⃣ Immediate win/block
+        # Immediate win/block
         move = self._find_threat_move(game_state, player_symbol, 4, 1, "Immediate Win")
-        if move:
-            return move
+        if move: return move
         move = self._find_threat_move(game_state, rival_symbol, 4, 1, "Immediate Block")
-        if move:
-            return move
-
-        # 2️⃣ Block opponent's 3-in-a-row
+        if move: return move
         move = self._find_threat_move(game_state, rival_symbol, 3, 2, "Block 3-in-a-row")
-        if move:
-            return move
+        if move: return move
 
-        # 3️⃣ Score moves
+        # Score moves
         legal_moves = game_state.get_legal_moves()
         if not legal_moves:
             return None
-
-        scored_moves = [(m, self._score_move(game_state, m, player_symbol, rival_symbol))
-                        for m in legal_moves]
+        scored_moves = [(m, self._score_move(game_state, m, player_symbol, rival_symbol)) for m in legal_moves]
         scored_moves.sort(key=lambda x: x[1], reverse=True)
         top_moves = scored_moves[:3]
         self.log(f"Top 3 moves for LLM: {top_moves}")
 
-        # 4️⃣ Threat summary
+        # Threat summary
         threat_summary = []
         opp4 = self._find_threat_move(game_state, rival_symbol, 4, 1)
         if opp4:
@@ -111,27 +105,16 @@ class MyExampleAgent(Agent):
             threat_summary.append(f"You have open-3 at {my3}, attack opportunity.")
 
         threat_text = "\n".join(threat_summary) if threat_summary else "No immediate urgent threats detected."
-
-        # 5️⃣ Deep-thinking LLM prompt with hidden reasoning
         board_str = game_state.format_board("standard")
-        moves_str = "\n".join([
-            f"{i+1}. {m[0]} (score {m[1]})"
-            for i, m in enumerate(top_moves)
-        ])
+        moves_str = "\n".join([f"{i+1}. {m[0]} (score {m[1]})" for i, m in enumerate(top_moves)])
+
         messages = [
             {
                 "role": "system",
                 "content": (
                     f"You are a professional Gomoku player playing as {player_symbol}. "
                     f"Opponent is {rival_symbol}.\n"
-                    f"Follow this deep reasoning process internally (DO NOT SHOW THE STEPS):\n"
-                    f"1. Evaluate each candidate move for WIN potential.\n"
-                    f"2. Check if it BLOCKS opponent’s win or open-3.\n"
-                    f"3. Check if it CREATES strong attacks (open 4, open 3).\n"
-                    f"4. Consider BOARD CONTROL (center control, adjacency to stones).\n"
-                    f"5. Simulate opponent’s BEST RESPONSE to each move.\n"
-                    f"6. Choose the move that maximizes your winning chances.\n\n"
-                    f"Only output the FINAL move as JSON. Do not explain reasoning."
+                    f"Think deeply but output only JSON.\n"
                 ),
             },
             {
@@ -140,11 +123,11 @@ class MyExampleAgent(Agent):
                     f"Board:\n{board_str}\n\n"
                     f"Threat Analysis:\n{threat_text}\n\n"
                     f"Candidate Moves:\n{moves_str}\n\n"
-                    f"Think carefully but OUTPUT ONLY JSON in the form: {{\"row\": <row>, \"col\": <col>}}"
+                    f"Output ONLY JSON: {{\"row\": <row>, \"col\": <col>}}"
                 ),
             },
         ]
-        self.log("Sending deep hidden-reasoning prompt to LLM...")
+        self.log("Sending to LLM...")
         self.log(messages)
 
         content = await self.llm.complete(messages)
@@ -154,14 +137,8 @@ class MyExampleAgent(Agent):
             match = re.search(r"\{\s*\"row\"\s*:\s*\d+\s*,\s*\"col\"\s*:\s*\d+\s*\}", content)
             if match:
                 move = json.loads(match.group(0))
-                chosen_move = (int(move["row"]), int(move["col"]))
-                if chosen_move in [m[0] for m in top_moves]:
-                    self.log(f"LLM chose {chosen_move}")
-                    return chosen_move
+                return (int(move["row"]), int(move["col"]))
         except Exception as e:
             self.log(f"LLM parsing failed: {e}")
 
-        # 6️⃣ Fallback
-        fallback = top_moves[0][0]
-        self.log(f"Fallback to top scored {fallback}")
-        return fallback
+        return top_moves[0][0]
