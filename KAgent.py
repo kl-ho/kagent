@@ -1,6 +1,7 @@
 import re
 import json
 import random
+import pprint
 from gomoku import Agent
 from gomoku.llm import OpenAIGomokuClient
 from gomoku.core.models import Player
@@ -8,17 +9,23 @@ from gomoku.core.models import Player
 
 class MyExampleAgent(Agent):
     def _setup(self):
-        self.llm = OpenAIGomokuClient(model="gemma2-9b-it")
-        self.debug = True  # Toggle debug logs
+        # Use DeepSeek-R1 model
+        self.llm = OpenAIGomokuClient(model="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B")
+        self.debug = True  # Toggle debug logging
 
     def log(self, msg):
+        """Safe debug logging to avoid JSON serialization errors."""
         if self.debug:
+            if not isinstance(msg, str):
+                msg = pprint.pformat(msg)
             print(f"[DEBUG] {msg}")
 
     def _check_pattern(self, seq, symbol, count_stones, count_empty):
+        """Check if a sequence matches a threat pattern."""
         return seq.count(symbol) == count_stones and seq.count(".") == count_empty
 
     def _find_threat_move(self, game_state, symbol, stones_needed, empty_needed, reason=""):
+        """Find a move that matches a specific threat pattern."""
         board = game_state.board
         size = game_state.board_size
         for r in range(size):
@@ -37,15 +44,38 @@ class MyExampleAgent(Agent):
                                 return move
         return None
 
+    def _annotate_move(self, game_state, move, player_symbol, rival_symbol):
+        """Annotate why a move is strong (attack, defense, control)."""
+        annotations = []
+        r, c = move
+
+        # Tactical checks
+        if self._find_threat_move(game_state, rival_symbol, 4, 1) == move:
+            annotations.append("Blocks opponent's open-4 (critical defense)")
+        if self._find_threat_move(game_state, player_symbol, 4, 1) == move:
+            annotations.append("Completes your open-4 (winning move)")
+        if self._find_threat_move(game_state, rival_symbol, 3, 2) == move:
+            annotations.append("Blocks opponent's open-3 (urgent defense)")
+        if self._find_threat_move(game_state, player_symbol, 3, 2) == move:
+            annotations.append("Extends your open-3 (attack opportunity)")
+
+        if not annotations:
+            annotations.append("Positional advantage / center control")
+
+        return "; ".join(annotations)
+
     def _score_move(self, game_state, move, player_symbol, rival_symbol):
+        """Score a move based on threats and positioning."""
         r, c = move
         size = game_state.board_size
         board = game_state.board
         score = 0
 
+        # Centrality bonus
         center = size // 2
         score += max(0, (center - abs(r - center)) + (center - abs(c - center)))
 
+        # Adjacency bonus
         for dr in [-1, 0, 1]:
             for dc in [-1, 0, 1]:
                 if dr == dc == 0:
@@ -55,6 +85,7 @@ class MyExampleAgent(Agent):
                     if board[nr][nc] in [player_symbol, rival_symbol]:
                         score += 2
 
+        # Threat potential
         board[r][c] = player_symbol
         if self._find_threat_move(game_state, player_symbol, 4, 1):
             score += 50
@@ -84,7 +115,7 @@ class MyExampleAgent(Agent):
         if move:
             return move
 
-        # 3️⃣ Score moves
+        # 3️⃣ Score all legal moves
         legal_moves = game_state.get_legal_moves()
         if not legal_moves:
             return None
@@ -95,7 +126,14 @@ class MyExampleAgent(Agent):
         top_moves = scored_moves[:3]
         self.log(f"Top 3 moves for LLM: {top_moves}")
 
-        # 4️⃣ Threat summary
+        # 4️⃣ Annotate candidate moves
+        annotated_moves = [
+            f"{i+1}. {m[0]} (score {m[1]}) - {self._annotate_move(game_state, m[0], player_symbol, rival_symbol)}"
+            for i, m in enumerate(top_moves)
+        ]
+        moves_str = "\n".join(annotated_moves)
+
+        # 5️⃣ Threat summary
         threat_summary = []
         opp4 = self._find_threat_move(game_state, rival_symbol, 4, 1)
         if opp4:
@@ -112,12 +150,8 @@ class MyExampleAgent(Agent):
 
         threat_text = "\n".join(threat_summary) if threat_summary else "No immediate urgent threats detected."
 
-        # 5️⃣ Deep-thinking LLM prompt with hidden reasoning
+        # 6️⃣ DeepSeek-R1 optimized prompt
         board_str = game_state.format_board("standard")
-        moves_str = "\n".join([
-            f"{i+1}. {m[0]} (score {m[1]})"
-            for i, m in enumerate(top_moves)
-        ])
         messages = [
             {
                 "role": "system",
@@ -125,13 +159,16 @@ class MyExampleAgent(Agent):
                     f"You are a professional Gomoku player playing as {player_symbol}. "
                     f"Opponent is {rival_symbol}.\n"
                     f"Follow this deep reasoning process internally (DO NOT SHOW THE STEPS):\n"
-                    f"1. Evaluate each candidate move for WIN potential.\n"
-                    f"2. Check if it BLOCKS opponent’s win or open-3.\n"
-                    f"3. Check if it CREATES strong attacks (open 4, open 3).\n"
-                    f"4. Consider BOARD CONTROL (center control, adjacency to stones).\n"
-                    f"5. Simulate opponent’s BEST RESPONSE to each move.\n"
-                    f"6. Choose the move that maximizes your winning chances.\n\n"
-                    f"Only output the FINAL move as JSON. Do not explain reasoning."
+                    f"1. Identify any immediate wins for yourself.\n"
+                    f"2. Identify any immediate wins for your opponent and how to block them.\n"
+                    f"3. Evaluate each candidate move for:\n"
+                    f"   - Win potential\n"
+                    f"   - Ability to block opponent’s threats\n"
+                    f"   - Ability to create double threats (forks)\n"
+                    f"   - Positioning advantage (center control, adjacency)\n"
+                    f"4. For each move, simulate opponent’s BEST RESPONSE.\n"
+                    f"5. Choose the move that maximizes your winning chances.\n"
+                    f"Think deeply but output ONLY JSON."
                 ),
             },
             {
@@ -139,17 +176,21 @@ class MyExampleAgent(Agent):
                 "content": (
                     f"Board:\n{board_str}\n\n"
                     f"Threat Analysis:\n{threat_text}\n\n"
-                    f"Candidate Moves:\n{moves_str}\n\n"
-                    f"Think carefully but OUTPUT ONLY JSON in the form: {{\"row\": <row>, \"col\": <col>}}"
+                    f"Candidate Moves (annotated):\n{moves_str}\n\n"
+                    f"Output ONLY JSON in the form: {{\"row\": <row>, \"col\": <col>}}"
                 ),
             },
         ]
-        self.log("Sending deep hidden-reasoning prompt to LLM...")
-        self.log(messages)
+
+        # ✅ Safe log for messages
+        self.log("Sending DeepSeek prompt to LLM...")
+        for msg in messages:
+            self.log(f"{msg['role'].upper()}:\n{msg['content']}\n")
 
         content = await self.llm.complete(messages)
         self.log(f"LLM Response: {content}")
 
+        # 7️⃣ Parse LLM JSON output
         try:
             match = re.search(r"\{\s*\"row\"\s*:\s*\d+\s*,\s*\"col\"\s*:\s*\d+\s*\}", content)
             if match:
@@ -161,7 +202,7 @@ class MyExampleAgent(Agent):
         except Exception as e:
             self.log(f"LLM parsing failed: {e}")
 
-        # 6️⃣ Fallback
+        # 8️⃣ Fallback
         fallback = top_moves[0][0]
         self.log(f"Fallback to top scored {fallback}")
         return fallback
