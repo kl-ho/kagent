@@ -9,7 +9,7 @@ from gomoku.core.models import Player
 class MyExampleAgent(Agent):
     def _setup(self):
         self.llm = OpenAIGomokuClient(model="gemma2-9b-it")
-        self.debug = True
+        self.debug = True  # Toggle debug logs
 
     def log(self, msg):
         if self.debug:
@@ -21,7 +21,6 @@ class MyExampleAgent(Agent):
     def _find_threat_move(self, game_state, symbol, stones_needed, empty_needed, reason=""):
         board = game_state.board
         size = game_state.board_size
-
         for r in range(size):
             for c in range(size):
                 for dr, dc in [(0, 1), (1, 0), (1, 1), (1, -1)]:
@@ -113,22 +112,26 @@ class MyExampleAgent(Agent):
 
         threat_text = "\n".join(threat_summary) if threat_summary else "No immediate urgent threats detected."
 
-        # 5️⃣ Deep-thinking LLM prompt
+        # 5️⃣ Deep-thinking LLM prompt with hidden reasoning
         board_str = game_state.format_board("standard")
-        moves_str = "\n".join([f"{i+1}. {m[0]} (score {m[1]})" for i, m in enumerate(top_moves)])
+        moves_str = "\n".join([
+            f"{i+1}. {m[0]} (score {m[1]})"
+            for i, m in enumerate(top_moves)
+        ])
         messages = [
             {
                 "role": "system",
                 "content": (
                     f"You are a professional Gomoku player playing as {player_symbol}. "
-                    f"Opponent is {rival_symbol}. THINK STEP BY STEP but output only JSON.\n"
-                    f"Your move selection process:\n"
-                    f"1. Evaluate each candidate move’s ability to WIN immediately.\n"
-                    f"2. Check if the move BLOCKS opponent’s win or open-3.\n"
-                    f"3. Check if it CREATES strong formations (open 4, open 3).\n"
-                    f"4. Consider board CONTROL (center positions, adjacency to stones).\n"
-                    f"5. Consider opponent’s BEST RESPONSE to each move.\n"
-                    f"After careful thinking, output only the final choice as JSON."
+                    f"Opponent is {rival_symbol}.\n"
+                    f"Follow this deep reasoning process internally (DO NOT SHOW THE STEPS):\n"
+                    f"1. Evaluate each candidate move for WIN potential.\n"
+                    f"2. Check if it BLOCKS opponent’s win or open-3.\n"
+                    f"3. Check if it CREATES strong attacks (open 4, open 3).\n"
+                    f"4. Consider BOARD CONTROL (center control, adjacency to stones).\n"
+                    f"5. Simulate opponent’s BEST RESPONSE to each move.\n"
+                    f"6. Choose the move that maximizes your winning chances.\n\n"
+                    f"Only output the FINAL move as JSON. Do not explain reasoning."
                 ),
             },
             {
@@ -137,11 +140,11 @@ class MyExampleAgent(Agent):
                     f"Board:\n{board_str}\n\n"
                     f"Threat Analysis:\n{threat_text}\n\n"
                     f"Candidate Moves:\n{moves_str}\n\n"
-                    f"Think carefully but output ONLY JSON: {{\"row\": <row>, \"col\": <col>}}"
+                    f"Think carefully but OUTPUT ONLY JSON in the form: {{\"row\": <row>, \"col\": <col>}}"
                 ),
             },
         ]
-        self.log("Sending deep-thinking prompt to LLM...")
+        self.log("Sending deep hidden-reasoning prompt to LLM...")
         self.log(messages)
 
         content = await self.llm.complete(messages)
