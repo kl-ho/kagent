@@ -9,7 +9,7 @@ from gomoku.core.models import Player
 class MyExampleAgent(Agent):
     def _setup(self):
         # 🔹 Updated model to Qwen3-8B
-        self.llm = OpenAIGomokuClient(model="Qwen/Qwen3-8B")
+        self.llm = OpenAIGomokuClient(model="Qwen3-8B")
         self.debug = True
 
     def log(self, msg):
