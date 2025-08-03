@@ -17,36 +17,42 @@ class MyExampleAgent(Agent):
 
     def _find_immediate_win_or_block(self, game_state, player_symbol):
         """
-        Scan board for immediate winning move (or block opponent’s win).
+        Scan board for immediate winning move or block opponent’s win.
         Checks horizontal, vertical, and both diagonals.
         """
         board = game_state.board
         size = game_state.board_size
         opponent_symbol = "O" if player_symbol == "X" else "X"
 
-        def check_direction(r, c, dr, dc, target_symbol):
-            count = 0
-            for i in range(5):
-                nr, nc = r + dr * i, c + dc * i
-                if 0 <= nr < size and 0 <= nc < size:
-                    if board[nr][nc] == target_symbol:
-                        count += 1
-                    elif board[nr][nc] != ".":
-                        return False
-                else:
-                    return False
-            return count == 4  # 4 stones + 1 empty space
+        def check_sequence(seq, base_r, base_c, dr, dc, symbol):
+            """
+            Check a sequence of 5 cells.
+            If 4 are 'symbol' and 1 is '.', return the empty cell coordinates.
+            """
+            if seq.count(symbol) == 4 and seq.count(".") == 1:
+                idx = seq.index(".")
+                return (base_r + dr * idx, base_c + dc * idx)
+            return None
 
-        # Check every cell
+        # Check all possible starting positions for 5-in-a-row
         for r in range(size):
             for c in range(size):
-                if board[r][c] == ".":
-                    # Temporarily place player's stone to test
-                    for dr, dc in [(1,0), (0,1), (1,1), (1,-1)]:
-                        if check_direction(r - 4*dr, c - 4*dc, dr, dc, player_symbol):
-                            return (r, c)
-                        if check_direction(r - 4*dr, c - 4*dc, dr, dc, opponent_symbol):
-                            return (r, c)
+                for dr, dc in [(0, 1), (1, 0), (1, 1), (1, -1)]:
+                    end_r = r + dr * 4
+                    end_c = c + dc * 4
+                    if 0 <= end_r < size and 0 <= end_c < size:
+                        # Extract sequence of 5 cells
+                        seq = [board[r + dr * i][c + dc * i] for i in range(5)]
+
+                        # Check for player's win
+                        move = check_sequence(seq, r, c, dr, dc, player_symbol)
+                        if move and game_state.is_valid_move(*move):
+                            return move
+
+                        # Check for blocking opponent's win
+                        move = check_sequence(seq, r, c, dr, dc, opponent_symbol)
+                        if move and game_state.is_valid_move(*move):
+                            return move
         return None
 
     async def get_move(self, game_state):
@@ -54,12 +60,12 @@ class MyExampleAgent(Agent):
         rival_symbol = (Player.WHITE if self.player == Player.BLACK else Player.BLACK).value
         board_size = game_state.board_size
 
-        # 1️⃣ Check for immediate win or block
+        # 1️⃣ Immediate win/block
         urgent_move = self._find_immediate_win_or_block(game_state, player_symbol)
-        if urgent_move and game_state.is_valid_move(*urgent_move):
+        if urgent_move:
             return urgent_move
 
-        # 2️⃣ No urgent move → Ask LLM
+        # 2️⃣ LLM strategy
         board_str = game_state.format_board("standard")
         messages = [
             {
@@ -100,6 +106,6 @@ Return ONLY JSON:
         except (json.JSONDecodeError, KeyError, ValueError):
             pass
 
-        # 3️⃣ Fallback → Random legal move
+        # 3️⃣ Fallback random
         legal_moves = game_state.get_legal_moves()
         return random.choice(legal_moves) if legal_moves else None
