@@ -8,13 +8,18 @@ from gomoku.core.models import Player
 
 class MyExampleAgent(Agent):
     def _setup(self):
-        # 🔹 Change to use HuggingFace DeepSeek model
+        model_name = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
+
+        # 🔹 Initialize HuggingFaceClient with DeepSeek model
         self.llm = HuggingFaceClient(
-            model="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+            model=model_name,
             temperature=0.7,
             max_new_tokens=256
         )
         self.debug = True
+
+        # 🔹 Log model info
+        self.log(f"Using model: {model_name}")
 
     def log(self, msg):
         if self.debug:
