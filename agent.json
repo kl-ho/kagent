@@ -1,6 +1,7 @@
 {
-    "name": "KAgent",
-    "agent_class": "KAgent.MyExampleAgent",
+    "name": "KAgentLocal",
+    "agent_class": "KAgentLocal.MyExampleAgent",
     "author": "Claude",
     "description": "This is a simple agent"
 }
+
