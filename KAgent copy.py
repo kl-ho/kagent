@@ -8,18 +8,16 @@ from gomoku.core.models import Player
 
 class MyExampleAgent(Agent):
     def _setup(self):
-        model_name = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
+        self.model_name = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
 
-        # 🔹 Initialize HuggingFaceClient with DeepSeek model
+        # Initialize HuggingFaceClient with DeepSeek model
         self.llm = HuggingFaceClient(
-            model=model_name,
+            model=self.model_name,
             temperature=0.7,
             max_new_tokens=256
         )
         self.debug = True
-
-        # 🔹 Log model info
-        self.log(f"Using model: {model_name}")
+        self.log(f"Initialized with model: {self.model_name}")
 
     def log(self, msg):
         if self.debug:
@@ -117,6 +115,9 @@ class MyExampleAgent(Agent):
         board_str = game_state.format_board("standard")
         moves_str = "\n".join([f"{i+1}. {m[0]} (score {m[1]})" for i, m in enumerate(top_moves)])
 
+        # Log model before sending
+        self.log(f"Sending to LLM model: {self.model_name}")
+
         messages = [
             {
                 "role": "system",
@@ -136,7 +137,7 @@ class MyExampleAgent(Agent):
                 ),
             },
         ]
-        self.log("Sending to LLM...")
+        self.log("Messages to LLM:")
         self.log(messages)
 
         content = await self.llm.complete(messages)
