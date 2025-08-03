@@ -2,22 +2,15 @@ import re
 import json
 import random
 from gomoku import Agent
-from gomoku.llm.huggingface_client import HuggingFaceClient
+from gomoku.llm import OpenAIGomokuClient
 from gomoku.core.models import Player
 
 
 class MyExampleAgent(Agent):
     def _setup(self):
-        self.model_name = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
-
-        # Initialize HuggingFaceClient with DeepSeek model
-        self.llm = HuggingFaceClient(
-            model=self.model_name,
-            temperature=0.7,
-            max_new_tokens=256
-        )
+        # 🔹 Updated model to Qwen3-8B
+        self.llm = OpenAIGomokuClient(model="gemma2-9b-it")
         self.debug = True
-        self.log(f"Initialized with model: {self.model_name}")
 
     def log(self, msg):
         if self.debug:
@@ -115,9 +108,6 @@ class MyExampleAgent(Agent):
         board_str = game_state.format_board("standard")
         moves_str = "\n".join([f"{i+1}. {m[0]} (score {m[1]})" for i, m in enumerate(top_moves)])
 
-        # Log model before sending
-        self.log(f"Sending to LLM model: {self.model_name}")
-
         messages = [
             {
                 "role": "system",
@@ -137,7 +127,7 @@ class MyExampleAgent(Agent):
                 ),
             },
         ]
-        self.log("Messages to LLM:")
+        self.log("Sending to LLM...")
         self.log(messages)
 
         content = await self.llm.complete(messages)
